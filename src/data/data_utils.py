@@ -1,34 +1,63 @@
 from pathlib import Path
+from typing import Tuple
 
 import pydicom
 
 import numpy as np
+from numpy import ndarray
 from skimage.draw import polygon, polygon2mask
 
 from src.metrics_acdc import load_nii
 
 
+INDEX_TO_CLASS = dict(zip(range(4), ['BG', 'RV', 'MYO', 'LV']))
+CLASS_TO_INDEX = {v: k for k, v in INDEX_TO_CLASS.items()}
+
+
 class Patient():
+    """Class that loads cine MR images and annotations from an ACDC patient.
+    """
     
     def __init__(self, filepath: str):
         
+        # Fetch list of all potential files
         files = [f for f in Path(filepath).iterdir() if f.suffixes == ['.nii', '.gz']]
         
         for f in files:
+            # Discard 4d
+            # Discard ground truth as those are fetched by their image
             if '_4d' in str(f) or '_gt' in str(f):
                 continue
             
+            # Fetch path of mask following dataset nomenclature
             f_gt = self._gt_path(f)
             
             if f_gt in files:
                 self.images, self.masks = self.fetch_frames(f, f_gt)
                       
     @staticmethod
-    def _gt_path(filepath: str):
+    def _gt_path(filepath: Path) -> Path:
+        """Get an image's corresponding ground truth mask
+
+        Args:
+            filepath (Path): location of image.
+
+        Returns:
+            Path: location of mask.
+        """
         return filepath.parent / (filepath.stem.split('.')[0] + '_gt.nii.gz')
             
     @staticmethod
-    def fetch_frames(image_path: str, mask_path: str):
+    def fetch_frames(image_path: Path, mask_path: Path) -> Tuple[ndarray, ndarray]:
+        """Load data from image and mask locations
+
+        Args:
+            image_path (Path): location of image.
+            mask_path (Path): location of mask.
+
+        Returns:
+            Tuple[ndarray, ndarray]: image (1, H, W) and mask (1, H, W)
+        """
         
         imt, _, _ = load_nii(image_path)
         gt, _, _ = load_nii(mask_path)

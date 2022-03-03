@@ -1,15 +1,16 @@
 from pathlib import Path
+from collections import Counter
 
 import torch
 from torch import nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from ..utils import dice_loss
+from ..utils import dice_loss, dice  # , evaluate, counter_mean
 
 
 def train(
-    model: nn.Module, train_loader: DataLoader, filename: str,
+    model: nn.Module, train_loader: DataLoader, val_loader: DataLoader,
+    filename: str,
     learning_rate: float = 1e-2, weight_decay: float = 1e-3, epochs: int = 25,
     verbose: int = 0
 ) -> None:
@@ -29,8 +30,10 @@ def train(
     checkpoints = (REPO_PATH / 'checkpoints' / filename).mkdir(parents=True, exist_ok=True)
     
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    
+    dice_score = Counter()
+    # n_batches = len(train_loader)
 
     for epoch in range(epochs):
         
@@ -43,13 +46,17 @@ def train(
             target = target.long()  # As target is index of classes
             
             output = model(_input)
-            loss = criterion(output, target) \
-                + dice_loss(output, F.one_hot(target, model.n_classes).permute(0, 3, 1, 2).double(),
-                            multiclass=True)
+            loss = criterion(output, target) + dice_loss(output, target)
             
             loss.backward()
             optimizer.step()
             
-            acc_loss += loss.item()
+            with torch.no_grad():
+                dice_score.update(dice(output, target))
+                acc_loss += loss.item()
+                
+        # train_perf = counter_mean(dice_score, n_batches)
+        # if val_loader is not None:
+            # test_perf = evaluate(model, val_loader)
             
     torch.save(model, str(checkpoints / 'model.pt'))
