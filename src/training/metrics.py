@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 
-def dice(prediction: torch.Tensor, target: torch.Tensor, exclude_bg: bool = True) -> Dict[int, torch.Tensor]:
+def dice(prediction: torch.Tensor, target: torch.Tensor, exclude_bg: bool = False) -> Dict[int, torch.Tensor]:
     """Dice coefficient for multi-class segmentation set-up.
 
     Args:
@@ -30,7 +30,7 @@ def dice(prediction: torch.Tensor, target: torch.Tensor, exclude_bg: bool = True
     # Let's check ability to compare after shaping them correctly
     assert prediction.size() == target.size()
     
-    _dice = {}
+    _dice = torch.zeros(n_classes)
 
     # Calculate Dice coefficient for classes
     # Background is class 0, so either [0, 1, ...] or [1, ...]
@@ -41,27 +41,28 @@ def dice(prediction: torch.Tensor, target: torch.Tensor, exclude_bg: bool = True
     return _dice
         
     
-def dice_loss(prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+def dice_loss(prediction: torch.Tensor, target: torch.Tensor, exclude_bg: bool = False) -> torch.Tensor:
     """Loss based on Dice coefficient. Objective function to minimize.
 
     Args:
         prediction (torch.Tensor): prediction Tensor of size (batch, n_classes, w, h)
         target (torch.Tensor): target index mask Tensor of size (batch, w, h)
+        exclude_bg (bool, optional): Exclude bg class (idx=0). Defaults to True.
 
     Returns:
         torch.Tensor: Dice Loss. Value between 0. and 1.
     """
-    dice_coeffs = torch.Tensor(dice(prediction, target).values())
-    
-    return 1. - dice_coeffs.mean()
+    offset = 1 if exclude_bg else 0
+    return 1. - dice(prediction, target)[offset:].mean()
 
 
-def evaluate(model: nn.Module, dataloader: DataLoader) -> torch.Tensor:
+def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device = 'cpu') -> torch.Tensor:
     """Evaluate segmentation model on DataLoader with Dice coefficient`
 
     Args:
         model (nn.Module): model
         dataloader (DataLoader): validation or testing dataloader
+        device (torch.device): device to evaluate on
 
     Returns:
         torch.Tensor: average dice score over all batches
@@ -69,22 +70,23 @@ def evaluate(model: nn.Module, dataloader: DataLoader) -> torch.Tensor:
     model.eval()
     
     # Aggregate per batch Dice coefficient in master dictionary
-    dice_score = Counter()
+    dice_score = torch.zeros(model.n_classes)
     
     n_batches = len(dataloader)
     assert n_batches > 0
 
     # iterate over the validation set
     with torch.no_grad():
-        for image, target in tqdm(dataloader, total=n_batches, unit='batch', leave=False):
-
+        for images, targets in tqdm(dataloader, total=n_batches, unit='batch', leave=False,
+                                    desc='Iterating through validation batches...'):
+            images, targets = images.to(device), targets.to(device)
             # predict the mask
-            output = model(image)
-            dice_score.update(dice(output, target))
+            output = model(images)
+            dice_score += dice(output, targets)
 
     model.train()
 
-    return counter_mean(dice_score, n_batches)
+    return dice_score / n_batches
 
 
 def counter_mean(counter: Counter, denominator: float) -> Dict[int, float]:

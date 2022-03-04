@@ -3,6 +3,7 @@
 *.mat
 
 .vscode/
+.aim/
 
 checkpoints/
 brainet/

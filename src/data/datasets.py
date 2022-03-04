@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 from .custom_transforms import SimulateTags
-from .data_utils import Scan, Patient
+from .utils import Scan, Patient
 
 
 class ACDCDataset(Dataset):
@@ -29,7 +29,8 @@ class ACDCDataset(Dataset):
             ValueError: raised if asked to recompute without giving location of raw dataset.
         """
         repo_path = Path(__file__).parent.parent.parent
-        self.location = (repo_path / 'checkpoints' / 'acdc_dataset.pt')
+        (repo_path / 'checkpoints').mkdir(parents=True, exist_ok=True)
+        self.location = (repo_path / 'checkpoints') / 'acdc_dataset.pt'
         
         if path is None and recompute:
             raise ValueError('Missing path.')
