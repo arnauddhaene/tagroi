@@ -13,16 +13,20 @@ from .utils import Scan, Patient
 
 
 class ACDCDataset(Dataset):
-    """Pytorch Dataset wrapper for the ACDC dataset. Available on https://acdc.creatis.insa-lyon.fr/.
-    """
+    """Pytorch Dataset wrapper for the ACDC dataset. Available on https://acdc.creatis.insa-lyon.fr/."""
     
-    def __init__(self, path: str = None, recompute: bool = False, verbose: int = 0):
+    def __init__(
+        self,
+        path: str = None, recompute: bool = False, tagged: bool = True,
+        verbose: int = 0
+    ):
         """Constructor
 
         Args:
             path (str, optional): Path to unzipped downloaded dataset. Defaults to None.
             recompute (bool, optional): Recompute dataset from source files instead of
                 fetching from pickled file in repository. Defaults to False.
+            tagged (bool, optional): transform to tagged images. Defaults to True.
             verbose (int, optional): Print out information. Defaults to 0.
 
         Raises:
@@ -30,25 +34,29 @@ class ACDCDataset(Dataset):
         """
         repo_path = Path(__file__).parent.parent.parent
         (repo_path / 'checkpoints').mkdir(parents=True, exist_ok=True)
-        self.location = (repo_path / 'checkpoints') / 'acdc_dataset.pt'
+        self.tagged: bool = tagged
+        filename = 'acdc_dataset_' + ('tagged' if tagged else 'cine') + '.pt'
+        self.location: Path = (repo_path / 'checkpoints') / filename
         
+        accepted_classes = [0., 1., 2., 3.]
+
         if path is None and recompute:
             raise ValueError('Missing path.')
         
         # Load from pickled file if available
         if not recompute and self.location.is_file():
             saved_dataset = torch.load(self.location)
-            self.images = saved_dataset.images
-            self.labels = saved_dataset.labels
+            self.images: torch.Tensor = saved_dataset.images
+            self.labels: torch.Tensor = saved_dataset.labels
             if verbose > 0:
-                print(f'Loaded saved dataset from {self.location}')
+                print(f'Loaded saved dataset of {len(self)} images from {self.location}')
 
         else:
             # Get all patient folders from main raw downloaded ACDC directory
             patient_paths = [ppath for ppath in Path(path).iterdir() if ppath.is_dir()]
             
-            self.images = torch.empty((1, 1, 256, 256))
-            self.labels = torch.empty((1, 256, 256))
+            self.images: torch.Tensor = torch.empty((1, 1, 256, 256))
+            self.labels: torch.Tensor = torch.empty((1, 256, 256))
 
             # Iterate over all patients
             patients_pbar = tqdm(patient_paths, leave=True)
@@ -66,13 +74,25 @@ class ACDCDataset(Dataset):
                     if verbose > 0:
                         image_pbar.set_description(f'Processing image of size {image.shape}...')
                     
-                    image, label = image.astype(np.float32), label.astype(np.float32)
-                
+                    image, label = image.astype(np.float64), label.astype(np.float64)
+
                     # Preprocess
                     mu, sigma = np.mean(image, axis=(0, 1)), np.std(image, axis=(0, 1))
                     image = self._preprocess_image(mu, sigma)(image).unsqueeze(0)
                     
                     label = self._preprocess_label()(label)
+
+                    # Exclude NaNs from dataset
+                    if torch.isnan(image).sum() > 0 or torch.isnan(label).sum() > 0:
+                        if verbose > 0:
+                            print('Skipped image due to presence of NaN')
+                        continue
+
+                    # Throw out inconsistent masks
+                    if not all([_class in accepted_classes for _class in label.unique()]):
+                        if verbose > 0:
+                            print('Skipped image due to incoherent label')
+                        continue
                             
                     self.images = torch.cat((self.images, image), axis=0)
                     self.labels = torch.cat((self.labels, label), axis=0)
@@ -80,7 +100,7 @@ class ACDCDataset(Dataset):
             # Save pickled dataset to reload it quicker on next use
             torch.save(self, self.location)
             if verbose > 0:
-                print(f'Saved dataset to {self.location}...')
+                print(f'Saved dataset of {len(self)} images to {self.location}')
 
     def _preprocess_image(self, mu: float, sigma: float) -> transforms.Compose:
         """Preprocess image
@@ -92,12 +112,19 @@ class ACDCDataset(Dataset):
         Returns:
             transforms.Compose: transformation callback function
         """
-        return transforms.Compose([
-            SimulateTags(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=mu, std=sigma),
-            transforms.Resize((256, 256))
-        ])
+        if self.tagged:
+            return transforms.Compose([
+                SimulateTags(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=mu, std=sigma),
+                transforms.Resize((256, 256))
+            ])
+        else:
+            return transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize(mean=mu, std=sigma),
+                transforms.Resize((256, 256))
+            ])
         
     def _preprocess_label(self) -> transforms.Compose:
         """Preprocess mask

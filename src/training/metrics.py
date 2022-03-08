@@ -1,6 +1,5 @@
 from tqdm import tqdm
 from typing import Dict
-from collections import Counter
 
 import torch
 from torch import nn
@@ -78,20 +77,16 @@ def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device = 'c
     # iterate over the validation set
     with torch.no_grad():
         for images, targets in tqdm(dataloader, total=n_batches, unit='batch', leave=False,
-                                    desc='Iterating through validation batches...'):
-            images, targets = images.to(device), targets.to(device)
+                                    desc='Iterating through validation batches'):
+            images, targets = images.double().to(device), targets.long().to(device)
             # predict the mask
             output = model(images)
-            dice_score += dice(output, targets)
+            dice_score += dice(F.softmax(output, dim=1), targets)
 
     model.train()
 
     return dice_score / n_batches
 
-
-def counter_mean(counter: Counter, denominator: float) -> Dict[int, float]:
-    return {k: v / denominator for k, v in dict(counter).items()}
-    
 
 def dc(result: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
     """

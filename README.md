@@ -14,3 +14,9 @@ Check GPU usage (auto-update every second)
 ```bash
 watch -n 1 nvidia-smi
 ```
+
+To get a bash shell within a running container (you can view running containers with ```docker ps```)
+
+```bash
+docker exec -it <container name> /bin/bash
+```
