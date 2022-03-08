@@ -13,3 +13,4 @@ aim==3.6.3
 flake8
 jupyter
 kornia==0.6.3
+streamlit
