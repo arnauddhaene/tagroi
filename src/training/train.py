@@ -3,12 +3,11 @@ from tqdm import tqdm
 
 import torch
 from torch import nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 import aim
 
-from .metrics import dice_loss, dice, evaluate
+from .metrics import dice_score, DiceLoss, evaluate
 from ..data.utils import INDEX_TO_CLASS
 
 
@@ -40,6 +39,7 @@ def train(
     amp = True
     
     criterion = nn.CrossEntropyLoss()
+    dice_criterion = DiceLoss(exclude_bg=True)
     optimizer = torch.optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=weight_decay,
                                     momentum=momentum)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=2)
@@ -60,7 +60,7 @@ def train(
     pbar = tqdm(range(epochs), unit='epoch', leave=True)
     for epoch in pbar:
         
-        dice_score = torch.zeros(4)
+        dice = torch.zeros(4).to(device)
         acc_loss = 0.
 
         model.train()
@@ -76,20 +76,20 @@ def train(
             with torch.cuda.amp.autocast(enabled=amp):
                 outputs = model(inputs)
                 loss = criterion(outputs, targets) + \
-                    dice_loss(F.softmax(outputs, dim=1), targets, exclude_bg=True)
+                    dice_criterion(outputs, targets)
 
                 optimizer.zero_grad(set_to_none=True)
                 grad_scaler.scale(loss).backward()
                 grad_scaler.step(optimizer)
                 grad_scaler.update()
 
-            dice_score += dice(F.softmax(outputs, dim=1), targets)
+            dice += dice_score(outputs, targets)
             acc_loss += loss.item()
 
         # Tracking training performance
         run.track(acc_loss, name='loss', epoch=epoch)
 
-        train_perf = dice_score / len(loader_train)
+        train_perf = dice / len(loader_train)
         avg_dice = train_perf.mean()
 
         for i, val in enumerate(train_perf):

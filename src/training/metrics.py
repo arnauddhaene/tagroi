@@ -1,5 +1,6 @@
 from tqdm import tqdm
-from typing import Dict
+
+from kornia.utils.one_hot import one_hot
 
 import torch
 from torch import nn
@@ -7,52 +8,138 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 
-def dice(prediction: torch.Tensor, target: torch.Tensor, exclude_bg: bool = False) -> Dict[int, torch.Tensor]:
-    """Dice coefficient for multi-class segmentation set-up.
+def dice_score(input: torch.Tensor, target: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    r"""Criterion that computes Sørensen-Dice Coefficient loss.
+
+    Based on https://kornia.readthedocs.io/en/latest/_modules/kornia/losses/dice.html#dice_loss
+    -- split into dice score and dice loss to be able to track performance for each class
+
+    According to [1], we compute the Sørensen-Dice Coefficient as follows:
+
+    .. math::
+
+        \text{Dice}(x, class) = \frac{2 |X| \cap |Y|}{|X| + |Y|}
+
+    Where:
+       - :math:`X` expects to be the scores of each class.
+       - :math:`Y` expects to be the one-hot tensor with the class labels.
+
+    the loss, is finally computed as:
+
+    .. math::
+
+        \text{loss}(x, class) = 1 - \text{Dice}(x, class)
+
+    Reference:
+        [1] https://en.wikipedia.org/wiki/S%C3%B8rensen%E2%80%93Dice_coefficient
 
     Args:
-        prediction (torch.Tensor): prediction Tensor of size (batch, n_classes, w, h)
-        target (torch.Tensor): target index mask Tensor of size (batch, w, h)
-        exclude_bg (bool, optional): Exclude bg class (idx=0). Defaults to True.
+        input: logits tensor with shape :math:`(N, C, H, W)` where C = number of classes.
+        labels: labels tensor with shape :math:`(N, H, W)` where each value
+          is :math:`0 ≤ targets[i] ≤ C−1`.
+        eps: Scalar to enforce numerical stabiliy.
 
-    Returns:
-        Dict: Dice coefficient for each class. Use data.utils.INDEX_TO_CLASS for conversion.
+    Return:
+        the computed dice score of shape (C)
+
+    Example:
+        >>> N = 5  # num_classes
+        >>> input = torch.randn(1, N, 3, 5, requires_grad=True)
+        >>> target = torch.empty(1, 3, 5, dtype=torch.long).random_(N)
+        >>> output = dice_loss(input, target)
+        >>> output.backward()
     """
-    
-    n_classes = prediction.shape[1]
-    # target is one hot encoded to be - batch_size, n_classes, width, height
-    target = F.one_hot(target.long(), n_classes).permute(0, 3, 1, 2).bool()
-    # prediction needs to adhere to multi-class segmentation
-    # this means that each pixel should have only one class
-    prediction = F.one_hot(prediction.argmax(dim=1), n_classes).permute(0, 3, 1, 2).bool()
-    
-    # Let's check ability to compare after shaping them correctly
-    assert prediction.size() == target.size()
-    
-    _dice = torch.zeros(n_classes)
+    if not isinstance(input, torch.Tensor):
+        raise TypeError(f"Input type is not a torch.Tensor. Got {type(input)}")
 
-    # Calculate Dice coefficient for classes
-    # Background is class 0, so either [0, 1, ...] or [1, ...]
-    bg_offset = 1 if exclude_bg else 0
-    for _class in range(bg_offset, n_classes):
-        _dice[_class] = dc(prediction[:, _class, ...], target[:, _class, ...])
-        
-    return _dice
-        
-    
+    if not len(input.shape) == 4:
+        raise ValueError(f"Invalid input shape, we expect BxNxHxW. \
+            Got: {input.shape}")
+
+    if not input.shape[-2:] == target.shape[-2:]:
+        raise ValueError(f"input and target shapes must be the same. \
+            Got: {input.shape} and {target.shape}")
+
+    if not input.device == target.device:
+        raise ValueError(f"input and target must be in the same device. \
+            Got: {input.device} and {target.device}")
+
+    # compute softmax over the classes axis
+    input_soft: torch.Tensor = F.softmax(input, dim=1)
+
+    # create the labels one hot tensor
+    target_one_hot: torch.Tensor = one_hot(target, num_classes=input.shape[1],
+                                           device=input.device, dtype=input.dtype)
+
+    # compute the actual dice score
+    dims = (2, 3)
+    intersection = torch.sum(input_soft * target_one_hot, dims)
+    cardinality = torch.sum(input_soft + target_one_hot, dims)
+
+    return torch.mean(2.0 * intersection / (cardinality + eps), dim=0)
+
+
 def dice_loss(prediction: torch.Tensor, target: torch.Tensor, exclude_bg: bool = False) -> torch.Tensor:
     """Loss based on Dice coefficient. Objective function to minimize.
 
     Args:
-        prediction (torch.Tensor): prediction Tensor of size (batch, n_classes, w, h)
-        target (torch.Tensor): target index mask Tensor of size (batch, w, h)
-        exclude_bg (bool, optional): Exclude bg class (idx=0). Defaults to True.
+        input: logits tensor with shape :math:`(N, C, H, W)` where C = number of classes.
+        labels: labels tensor with shape :math:`(N, H, W)` where each value
+          is :math:`0 ≤ targets[i] ≤ C−1`.
+        exclude_bg (bool, optional): Exclude background from loss term. Defaults to False.
 
     Returns:
         torch.Tensor: Dice Loss. Value between 0. and 1.
     """
     offset = 1 if exclude_bg else 0
-    return 1. - dice(prediction, target)[offset:].mean()
+    return torch.mean(-dice_score(prediction, target)[offset:] + 1.)
+
+
+class DiceLoss(nn.Module):
+    r"""Criterion that computes Sørensen-Dice Coefficient loss.
+
+    According to [1], we compute the Sørensen-Dice Coefficient as follows:
+
+    .. math::
+
+        \text{Dice}(x, class) = \frac{2 |X| \cap |Y|}{|X| + |Y|}
+
+    Where:
+       - :math:`X` expects to be the scores of each class.
+       - :math:`Y` expects to be the one-hot tensor with the class labels.
+
+    the loss, is finally computed as:
+
+    .. math::
+
+        \text{loss}(x, class) = 1 - \text{Dice}(x, class)
+
+    Reference:
+        [1] https://en.wikipedia.org/wiki/S%C3%B8rensen%E2%80%93Dice_coefficient
+
+    Args:
+        exclude_bg: Exclude background dice from loss term
+
+    Shape:
+        - Input: :math:`(N, C, H, W)` where C = number of classes.
+        - Target: :math:`(N, H, W)` where each value is
+          :math:`0 ≤ targets[i] ≤ C−1`.
+
+    Example:
+        >>> N = 5  # num_classes
+        >>> criterion = DiceLoss()
+        >>> input = torch.randn(1, N, 3, 5, requires_grad=True)
+        >>> target = torch.empty(1, 3, 5, dtype=torch.long).random_(N)
+        >>> output = criterion(input, target)
+        >>> output.backward()
+    """
+
+    def __init__(self, exclude_bg: bool = False) -> None:
+        super().__init__()
+        self.exclude_bg: bool = exclude_bg
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return dice_loss(input, target, self.exclude_bg)
 
 
 def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device = 'cpu') -> torch.Tensor:
@@ -69,7 +156,7 @@ def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device = 'c
     model.eval()
     
     # Aggregate per batch Dice coefficient in master dictionary
-    dice_score = torch.zeros(model.n_classes)
+    dice = torch.zeros(model.n_classes).to(device)
     
     n_batches = len(dataloader)
     assert n_batches > 0
@@ -80,44 +167,9 @@ def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device = 'c
                                     desc='Iterating through validation batches'):
             images, targets = images.double().to(device), targets.long().to(device)
             # predict the mask
-            output = model(images)
-            dice_score += dice(F.softmax(output, dim=1), targets)
+            outputs = model(images)
+            dice += dice_score(outputs, targets)
 
     model.train()
 
-    return dice_score / n_batches
-
-
-def dc(result: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
-    """
-    This is a modified version of medpy.metric.binary.dc that works with PyTorch
-    ---
-    Dice coefficient
-    
-    Computes the Dice coefficient (also known as Sorensen index) between the binary
-    objects in two images.
-
-    Args:
-        result (torch.Tensor): Input data containing objects. Can be any type but will be
-            converted into binary: background where 0, object everywhere else.
-        reference (torch.Tensor): Input data containing objects. Can be any type but will be
-            converted into binary: background where 0, object everywhere else.
-
-    Returns:
-        torch.Tensor: The Dice coefficient between the inputs.
-            Ranges from 0. (no overlap) to 1. (perfect overlap).
-    """
-    result = result.bool()
-    reference = reference.bool()
-    
-    intersection = torch.count_nonzero(result & reference)
-    
-    size_i1 = torch.count_nonzero(result)
-    size_i2 = torch.count_nonzero(reference)
-    
-    try:
-        dc = 2. * intersection / float(size_i1 + size_i2)
-    except ZeroDivisionError:
-        dc = 0.0
-    
-    return dc
+    return dice / n_batches

@@ -13,7 +13,7 @@ from src.data.datasets import ACDCDataset
 
 os.environ["NCCL_DEBUG"] = "INFO"
 
-dataset = ACDCDataset(path='../training/', tagged=False, verbose=1)
+dataset = ACDCDataset(path='../training/', tagged=True, verbose=1)
 
 train_set, val_set = random_split(dataset, [704, 248], generator=torch.Generator().manual_seed(42))
 loader_train = DataLoader(train_set, batch_size=16, shuffle=True)
@@ -23,10 +23,10 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 model = UNet(n_channels=1, n_classes=4, bilinear=True).double()
 # Load old saved version of the model
-# saved_model = torch.load('checkpoints/model/model_v1.pt')
-# if isinstance(saved_model, nn.DataParallel):  # Extract UNet if saved model is parallelized
-#     saved_model = saved_model.module
-# model.load_state_dict(saved_model.state_dict())
+saved_model = torch.load('checkpoints/model/model_cine_v0.pt')
+if isinstance(saved_model, nn.DataParallel):  # Extract UNet if saved model is parallelized
+    saved_model = saved_model.module
+model.load_state_dict(saved_model.state_dict())
 
 if device.type == 'cuda':
     model = nn.DataParallel(model).to(device)
