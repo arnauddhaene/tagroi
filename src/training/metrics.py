@@ -154,14 +154,14 @@ def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device = 'c
         torch.Tensor: average dice score over all batches
     """
     model.eval()
-    
+
     # Aggregate per batch Dice coefficient in master dictionary
     dice = torch.zeros(model.n_classes).to(device)
-    
+
     n_batches = len(dataloader)
     assert n_batches > 0
 
-    # iterate over the validation set
+    # iterate over the batches in the dataloader
     with torch.no_grad():
         for images, targets in tqdm(dataloader, total=n_batches, unit='batch', leave=False,
                                     desc='Iterating through validation batches'):

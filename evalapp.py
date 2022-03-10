@@ -29,6 +29,7 @@ saved_model: nn.Module = torch.load(model_path)
 if isinstance(saved_model, nn.DataParallel):
     saved_model = saved_model.module
 model.load_state_dict(saved_model.state_dict())
+model.to('cpu')
 
 tagged: bool = st.sidebar.radio('Image style', ('Tagged', 'Cine')) == 'Tagged'
 dataset = load(tagged=tagged)

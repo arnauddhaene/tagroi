@@ -14,7 +14,7 @@ from ..data.utils import INDEX_TO_CLASS
 def train(
     model: nn.Module, run: aim.Run, loader_train: DataLoader, loader_val: DataLoader,
     filename: str = 'model', device: torch.device = 'cpu',
-    learning_rate: float = 1e-1, weight_decay: float = 1e-3, momentum: float = 0.9,
+    learning_rate: float = 1e-2, weight_decay: float = 1e-3, momentum: float = 0.9,
     epochs: int = 50,
     verbose: int = 0
 ) -> None:
@@ -37,6 +37,7 @@ def train(
     (REPO_PATH / 'checkpoints' / filename).mkdir(parents=True, exist_ok=True)
 
     amp = True
+    model = model.to(device)
     
     criterion = nn.CrossEntropyLoss()
     dice_criterion = DiceLoss(exclude_bg=True)

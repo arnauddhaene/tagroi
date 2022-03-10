@@ -66,7 +66,7 @@ def sim_gridtag(im, spacing=5, total_flip=70, flip_pattern=(1, 3, 3, 1), x_offse
 
     flip_pattern = np.array(flip_pattern)
 
-    # Flip angles in radians
+    # Flip angles in radians -- reduce to have less
     flip_angles = total_flip * flip_pattern / flip_pattern.sum() * np.pi / 180
 
     # We now make a map that represents the spatial gradients that get played out
