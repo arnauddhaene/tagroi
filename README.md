@@ -32,4 +32,6 @@ docker exec -it <container name> /bin/bash
 
 New session with `tmux`. See available sessions with `tmux ls`. Attach to existing session using `tmux attach -t <session-ID>`
 
-Kill session with `Ctrl + b` followed by typing `kill-session`
+Kill session with `Ctrl + b` followed by typing `kill-session`.  To scroll within a session, use `Ctrl + b` followed by `[` and quit the scrolling mode with `q`.
+
+Cheatsheet available [here](https://tmuxcheatsheet.com/).

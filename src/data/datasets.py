@@ -17,7 +17,7 @@ class ACDCDataset(TensorDataset):
     
     def __init__(
         self,
-        path: str = None, recompute: bool = False, tagged: bool = True,
+        path: str = None, recompute: bool = False, tagged: bool = True, name: str = '',
         verbose: int = 0
     ):
         """Constructor
@@ -27,6 +27,7 @@ class ACDCDataset(TensorDataset):
             recompute (bool, optional): Recompute dataset from source files instead of
                 fetching from pickled file in repository. Defaults to False.
             tagged (bool, optional): transform to tagged images. Defaults to True.
+            name (str, optional): name to be added to saved file. Defaults to ''.
             verbose (int, optional): Print out information. Defaults to 0.
 
         Raises:
@@ -51,8 +52,8 @@ class ACDCDataset(TensorDataset):
             # Get all patient folders from main raw downloaded ACDC directory
             patient_paths = [ppath for ppath in Path(path).iterdir() if ppath.is_dir()]
             
-            images: torch.Tensor = torch.empty((1, 1, 256, 256))
-            labels: torch.Tensor = torch.empty((1, 256, 256))
+            images: torch.Tensor = torch.Tensor()
+            labels: torch.Tensor = torch.Tensor()
 
             skip_label: int = 0
             skip_nan: int = 0

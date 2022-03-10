@@ -1,6 +1,9 @@
+from typing import Callable
 from tqdm import tqdm
 
 from kornia.utils.one_hot import one_hot
+
+import aim
 
 import torch
 from torch import nn
@@ -142,17 +145,27 @@ class DiceLoss(nn.Module):
         return dice_loss(input, target, self.exclude_bg)
 
 
-def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device = 'cpu') -> torch.Tensor:
+def evaluate(model: nn.Module, dataloader: DataLoader,
+             loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+             track_images: bool = False, run: aim.Run = None, epoch: int = -1,
+             device: torch.device = 'cpu') -> torch.Tensor:
     """Evaluate segmentation model on DataLoader with Dice coefficient`
 
     Args:
         model (nn.Module): model
         dataloader (DataLoader): validation or testing dataloader
-        device (torch.device): device to evaluate on
+        loss_fn (Callable[[torch.Tensor, torch.Tensor], torch.Tensor]): loss function
+        track_images (bool, optional): track images to aim run. Defaults to False.
+        run (aim.Run, optional): aim run to send tracked images to. Defaults to None.
+        device (torch.device, optional): device to evaluate on. Defaults to cpu.
 
     Returns:
         torch.Tensor: average dice score over all batches
     """
+
+    if track_images and not isinstance(run, aim.Run):
+        raise ValueError(f'Must pass object of type aim.Run to eval function. Passed {type(run)}.')
+
     model.eval()
 
     # Aggregate per batch Dice coefficient in master dictionary
@@ -161,6 +174,8 @@ def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device = 'c
     n_batches = len(dataloader)
     assert n_batches > 0
 
+    val_loss = 0.
+
     # iterate over the batches in the dataloader
     with torch.no_grad():
         for images, targets in tqdm(dataloader, total=n_batches, unit='batch', leave=False,
@@ -168,8 +183,18 @@ def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device = 'c
             images, targets = images.double().to(device), targets.long().to(device)
             # predict the mask
             outputs = model(images)
+
+            if track_images:
+                masks = F.softmax(outputs, dim=1).argmax(dim=1).detach().cpu().numpy()
+                factor = round(256 / model.n_classes)
+                for mask, target in zip(masks, targets.detach().cpu().numpy()):
+                    mask, target = mask.astype('uint8') * factor, target.astype('uint8') * factor
+                    run.track(aim.Image(mask, caption='prediction'), name='images', epoch=epoch)
+                    run.track(aim.Image(target, caption='target'), name='images', epoch=epoch)
+
             dice += dice_score(outputs, targets)
+            val_loss += loss_fn(outputs, targets).item()
 
     model.train()
 
-    return dice / n_batches
+    return dice / n_batches, val_loss / len(dataloader)

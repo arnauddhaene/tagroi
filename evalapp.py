@@ -19,10 +19,10 @@ def load(tagged: bool = True) -> Dataset:
     return dataset
 
 
-st.sidebar.title('Performance evaluator')
+st.title('Performance evaluator')
 
 model_store: List[Path] = Path('checkpoints/model').iterdir()
-model_path: str = st.sidebar.selectbox('Select model', model_store)
+model_path: str = st.selectbox('Select model', model_store)
 
 model: nn.Module = UNet(n_channels=1, n_classes=4, bilinear=True).double()
 saved_model: nn.Module = torch.load(model_path)
@@ -31,7 +31,7 @@ if isinstance(saved_model, nn.DataParallel):
 model.load_state_dict(saved_model.state_dict())
 model.to('cpu')
 
-tagged: bool = st.sidebar.radio('Image style', ('Tagged', 'Cine')) == 'Tagged'
+tagged: bool = st.radio('Image style', ('Tagged', 'Cine')) == 'Tagged'
 dataset = load(tagged=tagged)
 
 img: int = st.slider('Select datapoint', value=1, min_value=0, max_value=len(dataset), step=1)
