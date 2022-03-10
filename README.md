@@ -29,9 +29,6 @@ docker exec -it <container name> /bin/bash
 
  ### Using tmux
 
-```bash
-docker exec -it <container name> /bin/bash
-```
 
 New session with `tmux`. See available sessions with `tmux ls`. Attach to existing session using `tmux attach -t <session-ID>`
 
