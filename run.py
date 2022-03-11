@@ -37,12 +37,10 @@ def run(
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model = UNet(n_channels=1, n_classes=4, bilinear=True).double()
-    # Load old saved version of the model
-    saved_model = torch.load('checkpoints/model/model_cine_tag.pt')
+    # Load old saved version of the model as a state dictionary
+    saved_model_sd = torch.load('checkpoints/model/model_cine_tag.pt')
     # Extract UNet if saved model is parallelized
-    if isinstance(saved_model, nn.DataParallel):
-        saved_model = saved_model.module
-    model.load_state_dict(saved_model.state_dict())
+    model.load_state_dict(saved_model_sd)
 
     if device.type == 'cuda':
         model = nn.DataParallel(model)
