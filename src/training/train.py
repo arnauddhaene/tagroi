@@ -138,4 +138,6 @@ def train(
 
         pbar.set_description(status)
         
-    torch.save(model, str(REPO_PATH / 'checkpoints' / 'model' / f'{filename}.pt'))
+    # Save submodel State Dictionary, not DataParallel's
+    model_sd = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+    torch.save(model_sd, str(REPO_PATH / 'checkpoints' / 'model' / f'{filename}.pt'))
