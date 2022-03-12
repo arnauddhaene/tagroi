@@ -6,13 +6,13 @@
 Launch docker container (replace xx.xx with Docker version - current install is `20.10`)
 
 ```bash
-docker run --gpus all --ipc=host -it -v $(pwd):/workspace/ --rm nvcr.io/nvidia/pytorch:xx.xx-py3
+docker run --gpus all --ipc=host --log-opt max-size=50m -it -v $(pwd):/workspace/ --rm nvcr.io/nvidia/pytorch:xx.xx-py3
 ```
 
 If you want to launch it in daemon mode (background), use this
 
 ```bash
-docker run --gpus all --ipc=host -d -v $(pwd):/workspace/ nvcr.io/nvidia/pytorch:xx.xx-py3 /bin/sh -c "while true; do ping 8.8.8.8; done"
+docker run --gpus all --ipc=host --log-opt max-size=50m -d -v $(pwd):/workspace/ nvcr.io/nvidia/pytorch:xx.xx-py3 /bin/sh -c "while true; do ping 8.8.8.8; done"
 ```
 
 Check GPU usage (auto-update every second)

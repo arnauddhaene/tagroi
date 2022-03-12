@@ -25,11 +25,10 @@ model_store: List[Path] = Path('checkpoints/model').iterdir()
 model_path: str = st.selectbox('Select model', model_store)
 
 model: nn.Module = UNet(n_channels=1, n_classes=4, bilinear=True).double()
-saved_model: nn.Module = torch.load(model_path)
-if isinstance(saved_model, nn.DataParallel):
-    saved_model = saved_model.module
-model.load_state_dict(saved_model.state_dict())
-model.to('cpu')
+# Load old saved version of the model as a state dictionary
+saved_model_sd = torch.load(model_path)
+# Extract UNet if saved model is parallelized
+model.load_state_dict(saved_model_sd)
 
 tagged: bool = st.radio('Image style', ('Tagged', 'Cine')) == 'Tagged'
 dataset = load(tagged=tagged)

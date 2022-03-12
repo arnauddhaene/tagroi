@@ -38,7 +38,7 @@ def run(
 
     model = UNet(n_channels=1, n_classes=4, bilinear=True).double()
     # Load old saved version of the model as a state dictionary
-    saved_model_sd = torch.load('checkpoints/model/model_cine_tag.pt')
+    saved_model_sd = torch.load('checkpoints/model/model_cine_tag_v2_sd.pt')
     # Extract UNet if saved model is parallelized
     model.load_state_dict(saved_model_sd)
 
