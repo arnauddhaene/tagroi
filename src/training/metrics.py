@@ -1,7 +1,9 @@
 from typing import Callable
 from tqdm import tqdm
 
+import numpy as np
 from kornia.utils.one_hot import one_hot
+from scipy.ndimage import morphology
 
 import aim
 
@@ -143,6 +145,137 @@ class DiceLoss(nn.Module):
 
     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         return dice_loss(input, target, self.exclude_bg)
+
+
+def region_loss(input: torch.Tensor, target: torch.Tensor, exclude_bg: bool = False) -> torch.Tensor:
+    """Loss based on region-based incorrect pixel count. Objective function to minimize.
+    Based on https://ieeexplore.ieee.org/document/9433775
+
+    Args:
+        input: logits tensor with shape :math:`(N, C, H, W)` where C = number of classes.
+        label: labels tensor with shape :math:`(N, H, W)` where each value
+          is :math:`0 ≤ targets[i] ≤ C−1`.
+
+    Returns:
+        torch.Tensor: region-based loss. Value between 0. and 1.
+    """
+    if not isinstance(input, torch.Tensor):
+        raise TypeError(f"Input type is not a torch.Tensor. Got {type(input)}")
+
+    if not len(input.shape) == 4:
+        raise ValueError(f"Invalid input shape, we expect BxNxHxW. \
+            Got: {input.shape}")
+
+    if not input.shape[-2:] == target.shape[-2:]:
+        raise ValueError(f"input and target shapes must be the same. \
+            Got: {input.shape} and {target.shape}")
+
+    if not input.device == target.device:
+        raise ValueError(f"input and target must be in the same device. \
+            Got: {input.device} and {target.device}")
+
+    # compute softmax over the classes axis
+    input_soft: torch.Tensor = F.softmax(input, dim=1)
+
+    # create the labels one hot tensor
+    target_one_hot: torch.Tensor = one_hot(target, num_classes=input.shape[1],
+                                           device=input.device, dtype=input.dtype)
+
+    rl = (target_one_hot * (1 - input_soft) + (1 - target_one_hot) * input_soft).sum(dim=(2, 3))
+    rl = rl / input[0, 0].numel()
+
+    offset = 1 if exclude_bg else 0
+    return rl.sum(dim=0)[offset:].mean()
+
+
+class RegionLoss(nn.Module):
+
+    def __init__(self, exclude_bg: bool = True) -> None:
+        super().__init__()
+        self.exclude_bg = exclude_bg
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return region_loss(input, target, self.exclude_bg)
+
+
+def shape_loss(input: torch.Tensor, target: torch.Tensor, exclude_bg: bool = False) -> torch.Tensor:
+    """Loss based on shape. Objective function to minimize.
+    Based on https://ieeexplore.ieee.org/document/9433775
+
+    Args:
+        input: logits tensor with shape :math:`(N, C, H, W)` where C = number of classes.
+        label: labels tensor with shape :math:`(N, H, W)` where each value
+          is :math:`0 ≤ targets[i] ≤ C−1`.
+
+    Returns:
+        torch.Tensor: shape-based loss. Value between 0. and 1.
+    """
+    if not isinstance(input, torch.Tensor):
+        raise TypeError(f"Input type is not a torch.Tensor. Got {type(input)}")
+
+    if not len(input.shape) == 4:
+        raise ValueError(f"Invalid input shape, we expect BxNxHxW. \
+            Got: {input.shape}")
+
+    if not input.shape[-2:] == target.shape[-2:]:
+        raise ValueError(f"input and target shapes must be the same. \
+            Got: {input.shape} and {target.shape}")
+
+    if not input.device == target.device:
+        raise ValueError(f"input and target must be in the same device. \
+            Got: {input.device} and {target.device}")
+
+    # compute softmax over the classes axis
+    input_soft: torch.Tensor = F.softmax(input, dim=1)
+
+    # create the labels one hot tensor
+    target_one_hot: torch.Tensor = one_hot(target, num_classes=input.shape[1],
+                                           device=input.device, dtype=input.dtype)
+
+    # TODO: potentially find a way to torch-ify this... for now switching back and forth to numpy :(
+    # highly uncool because I need to do for loops due to scipy function def
+    distance_maps = torch.Tensor()
+    np_target_one_hot = target_one_hot.int().cpu().numpy()
+
+    for _im in range(input.shape[0]):
+
+        distance_map = torch.Tensor()
+
+        for _class in range(input.shape[1]):
+
+            roi = np_target_one_hot[_im, _class]
+
+            dt = morphology.distance_transform_edt(roi)
+            dt /= (dt.max() + 1e-8)
+            
+            dt_n = morphology.distance_transform_edt(1 - roi)
+            dt_n /= (dt_n.max() + 1e-8)
+
+            shape_information = (1 - dt) * roi + (dt_n - 1) * (1 - roi)
+
+            sdm = torch.Tensor(1 / (1 + np.exp(-shape_information / 10.))).unsqueeze(0)
+
+            distance_map = torch.cat([distance_map, sdm], axis=0)
+        
+        distance_maps = torch.cat([distance_maps, distance_map.unsqueeze(0)], axis=0)
+
+    distance_maps = distance_maps.to(input.device)
+
+    sl = (distance_maps - input_soft).abs().sum(dim=(2, 3))
+    sl = sl / input[0, 0].numel()
+
+    offset = 1 if exclude_bg else 0
+    return sl.sum(dim=0)[offset:].mean()
+
+
+class ShapeLoss(nn.Module):
+
+    def __init__(self, exclude_bg: bool = True) -> None:
+        super().__init__()
+        self.exclude_bg = exclude_bg
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return shape_loss(input, target, self.exclude_bg)
 
 
 def evaluate(model: nn.Module, dataloader: DataLoader,

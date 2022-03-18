@@ -34,16 +34,16 @@ def run(
     loader_train = DataLoader(train_set, batch_size=batch_size, shuffle=True)
     loader_val = DataLoader(val_set, batch_size=batch_size, shuffle=False)
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
 
     model = UNet(n_channels=1, n_classes=4, bilinear=True).double()
     # Load old saved version of the model as a state dictionary
-    saved_model_sd = torch.load('checkpoints/model/model_cine_tag_v2_sd.pt')
+    saved_model_sd = torch.load('checkpoints/model/model_cine_tag_v1_sd.pt')
     # Extract UNet if saved model is parallelized
     model.load_state_dict(saved_model_sd)
 
     if device.type == 'cuda':
-        model = nn.DataParallel(model)
+        model = nn.DataParallel(model, device_ids=[1])
         model.n_classes = model.module.n_classes
 
     run = aim.Run(experiment=experiment_name)

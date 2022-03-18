@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 import aim
 
-from .metrics import dice_score, DiceLoss, evaluate
+from .metrics import evaluate, ShapeLoss, RegionLoss, dice_score, DiceLoss
 from ..data.utils import INDEX_TO_CLASS
 
 
@@ -55,9 +55,13 @@ def train(
     # Define loss
     criterion = nn.CrossEntropyLoss()
     dice_criterion = DiceLoss(exclude_bg=True)
+    # region_criterion = RegionLoss(exclude_bg=False)
+    shape_criterion = ShapeLoss(exclude_bg=False)
 
     def loss_fn(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        return criterion(outputs, targets) + dice_criterion(outputs, targets)
+        return criterion(outputs, targets) + dice_criterion(outputs, targets) \
+            + 1e-4 * shape_criterion(outputs, targets)
+        # return region_criterion(outputs, targets) + 0.1 * shape_criterion(outputs, targets)
 
     optimizer = torch.optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=weight_decay,
                                     momentum=momentum)
@@ -71,7 +75,11 @@ def train(
         'momentum': momentum,
         'optimizer': optimizer.__class__.__name__,
         'main_criterion': criterion.__class__.__name__,
-        'secondary_criterion': dice_criterion.__class__.__name__,
+        'secondary_criterion': [
+            dice_criterion.__class__.__name__,
+            shape_criterion.__class__.__name__,
+            # region_criterion.__class__.__name__
+        ],
         'device': device.type,
         'augmentation': str(train_aug)
     }
@@ -89,6 +97,7 @@ def train(
 
         batch_pbar = tqdm(loader_train, total=len(loader_train), unit='batch', leave=False)
         for inputs, targets in batch_pbar:
+            optimizer.zero_grad(set_to_none=True)
 
             batch_pbar.set_description(f'Acummulated loss: {acc_loss:.4f}')
             # move to device
@@ -102,11 +111,10 @@ def train(
             with torch.cuda.amp.autocast(enabled=amp):
                 outputs = model(inputs)
                 loss = loss_fn(outputs, targets)
-
-                optimizer.zero_grad(set_to_none=True)
-                grad_scaler.scale(loss).backward()
-                grad_scaler.step(optimizer)
-                grad_scaler.update()
+            
+            grad_scaler.scale(loss).backward()
+            grad_scaler.step(optimizer)
+            grad_scaler.update()
 
             dice += dice_score(outputs, targets)
             acc_loss += loss.item()
@@ -134,7 +142,7 @@ def train(
         for i, val in enumerate(val_perf):
             run.track(val, name=f'dice_{INDEX_TO_CLASS[i]}', epoch=epoch, context=dict(subset='val'))
 
-        status += f'\t Val. Dice {avg_val_dice:.4f}'
+        status += f'\t Val. Loss {val_loss:.4f} \t Val. Dice {avg_val_dice:.4f}'
 
         pbar.set_description(status)
         
