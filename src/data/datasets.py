@@ -1,11 +1,11 @@
 from pathlib import Path
-from typing import Tuple
 from tqdm import tqdm
+from typing import List
 
 import numpy as np
 
 import torch
-from torch.utils.data import TensorDataset, Dataset
+from torch.utils.data import TensorDataset
 from torchvision import transforms
 
 from .custom_transforms import SimulateTags
@@ -149,41 +149,37 @@ class ACDCDataset(TensorDataset):
         ])
 
     
-class DMDDataset(Dataset):
+class DMDDataset(TensorDataset):
     
-    def __init__(self):
+    def __init__(self, path: str = '../../dmd_roi/'):
         
-        HEALTHY_DIR, DMD_DIR = Path('../../dmd_roi/healthy'), Path('../../dmd_roi/dmd')
+        HEALTHY_DIR, DMD_DIR = Path(path) / 'healthy', Path(path) / 'dmd'
         
-        self.images = np.empty((1, 3, 256, 256))
-        self.labels = np.empty((1, 1, 256, 256))
+        images: torch.Tensor = torch.Tensor()
+        labels: torch.Tensor = torch.Tensor()
         
         for directory in [HEALTHY_DIR, DMD_DIR]:
             # Iterate over all scans for each folder
-            scans = [Scan(directory / patient) for patient in directory.iterdir() if directory.is_dir()]
+            scans = [Scan(patient) for patient in directory.iterdir() if patient.is_dir()]
             
             for scan in scans:
                 for slic in scan.slices.values():
                     if slic.is_annotated():
                         
                         image = slic.image[0]
-                        image = image.astype(np.float32)
+                        image = image.astype(np.float64)
                         # Preprocess
-                        mu, sigma = np.mean(image, axis=(0, 1)), np.std(image, axis=(0, 1))
-                        image = self._preprocess_image(mu, sigma)(image).unsqueeze(0)
-                        
-                        # Repeat channels by 3 to be used in RGB segmentation model
-                        image = image.repeat(1, 3, 1, 1)
-                        
+                        image = image / image.max()
+                        image = self._preprocess_image(0.456, 0.224)(image).unsqueeze(0)
+                                                                      
                         label = (slic.mask['outer'] ^ slic.mask['inner'])
-                        label = label.astype(np.float32)
-                        label = self._preprocess_label()(label).unsqueeze(0)
+                        label = label.astype(np.float64)
+                        label = self._preprocess_label()(label)
                                                                         
-                        self.images = np.append(self.images, image, axis=0)
-                        self.labels = np.append(self.labels, label, axis=0)
+                        images = torch.cat((images, image), axis=0)
+                        labels = torch.cat((labels, label), axis=0)
                         
-        self.images = torch.from_numpy(self.images).float()
-        self.labels = torch.from_numpy(self.labels).float()
+        self.tensors = (images, labels,)
         
     def _preprocess_image(self, mu: float, sigma: float) -> transforms.Compose:
         return transforms.Compose([
@@ -197,10 +193,65 @@ class DMDDataset(Dataset):
             transforms.ToTensor(),
             transforms.Resize((256, 256))
         ])
-        
-    def __len__(self) -> int:
-        assert len(self.images) == len(self.labels)
-        return len(self.images)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.images[idx], self.labels[idx]
+
+class DMDTimeDataset(TensorDataset):
+    
+    def __init__(self, path: str = '../../dmd_roi/'):
+        
+        HEALTHY_DIR, DMD_DIR = Path(path) / 'healthy', Path(path) / 'dmd'
+        
+        images: torch.Tensor = torch.Tensor()
+        videos: torch.Tensor = torch.Tensor()
+        labels: torch.Tensor = torch.Tensor()
+        slices: List[str] = []
+        
+        for directory in [HEALTHY_DIR, DMD_DIR]:
+            # Iterate over all scans for each folder
+            scans = [Scan(patient) for patient in directory.iterdir() if patient.is_dir()]
+            
+            for scan in scans:
+                for slic in scan.slices.values():
+            
+                    if slic.is_annotated():
+                        
+                        video = slic.image.astype(np.float64)
+                        image = video[0]
+                        
+                        video = self._preprocess_video()(torch.Tensor(video)).unsqueeze(0)
+                        
+                        # Preprocess
+                        image = image / image.max()
+                        image = self._preprocess_image(0.456, 0.224)(image).unsqueeze(0)
+                                                                      
+                        label = (slic.mask['outer'] ^ slic.mask['inner'])
+                        label = label.astype(np.float64)
+                        label = self._preprocess_label()(label)
+                    
+                        images = torch.cat((images, image), axis=0)
+                        videos = torch.cat((videos, video), axis=0)
+                        labels = torch.cat((labels, label), axis=0)
+                        slices.append(slic.slice_location)
+                                      
+        self.slices = slices
+        self.tensors = (images, videos, labels,)
+        
+    def _preprocess_image(self, mu: float, sigma: float) -> transforms.Compose:
+        return transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mu, std=sigma),
+            transforms.Resize((256, 256))
+        ])
+        
+    def _preprocess_video(self) -> transforms.Compose:
+        return transforms.Compose([
+            transforms.Resize((256, 256))
+        ])
+        
+    def _preprocess_label(self) -> transforms.Compose:
+        return transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize((256, 256))
+        ])
+
+    
