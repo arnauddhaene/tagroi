@@ -78,6 +78,7 @@ class Slice:
         
         # Extract ROI if it exists
         roi_path = (path / 'roi_pts.npz')
+        self.slice_location = path.name
         if roi_path.is_file():
             rois = np.load(roi_path)
             self.roi = {array_key: rois[array_key] for array_key in list(rois.keys())}
