@@ -205,6 +205,7 @@ class DMDTimeDataset(TensorDataset):
         videos: torch.Tensor = torch.Tensor()
         labels: torch.Tensor = torch.Tensor()
         slices: List[str] = []
+        conditions: List[str] = []
         
         for directory in [HEALTHY_DIR, DMD_DIR]:
             # Iterate over all scans for each folder
@@ -232,8 +233,10 @@ class DMDTimeDataset(TensorDataset):
                         videos = torch.cat((videos, video), axis=0)
                         labels = torch.cat((labels, label), axis=0)
                         slices.append(slic.slice_location)
+                        conditions.append(str(directory.name))
                                       
         self.slices = slices
+        self.conditions = conditions
         self.tensors = (images, videos, labels,)
         
     def _preprocess_image(self, mu: float, sigma: float) -> transforms.Compose:

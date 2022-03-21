@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 import aim
 
-from .metrics import evaluate, ShapeLoss, RegionLoss, dice_score, DiceLoss
+from .metrics import evaluate, ShapeLoss, dice_score, DiceLoss
 from ..data.utils import INDEX_TO_CLASS
 
 
@@ -60,7 +60,7 @@ def train(
 
     def loss_fn(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         return criterion(outputs, targets) + dice_criterion(outputs, targets) \
-            + 1e-4 * shape_criterion(outputs, targets)
+            + 1e-2 * shape_criterion(outputs, targets)
         # return region_criterion(outputs, targets) + 0.1 * shape_criterion(outputs, targets)
 
     optimizer = torch.optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=weight_decay,
