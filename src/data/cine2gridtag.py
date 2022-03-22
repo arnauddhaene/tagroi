@@ -1,8 +1,73 @@
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+import torch
+
+def cine2gridtag(im, label, LV_index = 2, 
+                 mod = 0.4, spacing=5, 
+                 **kwargs):
+    """Modifies contrast and adds grid tags (line tags in perpendicular directions) to an image
+
+    Parameters
+    ----------
+    im : ndarray
+        2D image that will have grid tag lines applied
+    label : ndarray, or None
+        Image labels for ROIs of intrest, can be None to ignore this feature
+    LV_index : int
+        The index of the LV mask in label, default is 2 per ACDC data
+    mod : float
+        The contrast modification exponential power
+    spacing : float
+        The distance between lines, in pixels
+    **kwargs : optional
+        Passthrogh arguments for sim_gridtag
+
+    Returns
+    -------
+    ndarray
+        The input image with grid tag lines added
+
+    """
+
+    # Try to handle tensor inputs (this is undone at the end of the function)
+    is_tensor = False
+    if torch.is_tensor(im):
+        is_tensor = True
+        im = im.numpy()
+
+    if label is not None:
+        if torch.is_tensor(label):
+            label = label.numpy()
+
+        if label.shape != im.shape:  # This may already be checked somewhere, probably not needed
+            print('ERROR: shapes not equal', label.shape, im.shape)
+        
+        lv_mask = (label == LV_index)
+
+        if lv_mask.sum() > 10:  # Some masks in ACDC are empty? (10 is arbitrary)
+            # This selects the image intensity in the 0-50th quantile from the 
+            # LV.  Randomness per Dan's comment
+            transition_val = np.quantile(im[lv_mask], np.random.rand()/2)
+            im = mod_contrast(im, mod, transition_val)
+
+        else:
+            im = mod_contrast(im, mod)
+    else:
+        im = mod_contrast(im, mod)
 
 
-def mod_contrast(im, mod=0.4):
+    im = sim_gridtag(im, spacing, **kwargs)
+
+    im_out = im
+    if is_tensor:
+        im_out = torch.tensor(im_out)
+
+    return im_out
+
+
+
+
+def mod_contrast(im, mod=0.4, transition_val=0):
     """Modify image contrast
     Parameters
     ----------
@@ -10,6 +75,8 @@ def mod_contrast(im, mod=0.4):
         2D image
     mod : float, optional
         exponent to apply to the image, by default 0.4
+    transition_val : float, optional
+        Below this value, contrast will remain linear, and only apply contrast mod after
 
     Returns
     -------
@@ -24,7 +91,12 @@ def mod_contrast(im, mod=0.4):
 
     """
 
-    im = im ** mod
+    if transition_val > 0:
+        im /= transition_val  # Make it so our critical point where contrast changes is at 1
+        im[im>=1] = im[im>=1] ** mod
+        im *= transition_val
+    else:
+        im = im ** mod
 
     return im
 
@@ -64,6 +136,11 @@ def sim_gridtag(im, spacing=5, total_flip=70, flip_pattern=(1, 3, 3, 1), x_offse
 
     """
 
+    singleton_dim0 = False
+    if im.ndim == 3 and im.shape[0] == 1:
+        singleton_dim0 = True
+        im = im.squeeze()
+
     flip_pattern = np.array(flip_pattern)
 
     # Flip angles in radians -- reduce to have less
@@ -88,6 +165,9 @@ def sim_gridtag(im, spacing=5, total_flip=70, flip_pattern=(1, 3, 3, 1), x_offse
     
     G_theta = moment * (X - Y)
     im3 = sim_linetag(im2, flip_angles, G_theta)
+
+    if singleton_dim0:
+        im3 = im3[None,...]
 
     return im3
 
