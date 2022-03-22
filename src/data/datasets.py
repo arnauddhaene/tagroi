@@ -80,11 +80,13 @@ class ACDCDataset(TensorDataset):
 
                     # Preprocess
                     # mu, sigma = np.mean(image, axis=(0, 1)), np.std(image, axis=(0, 1))
-                    image = image / image.max()  # To [0, 1] range
-                    image = self._preprocess_image(0.456, 0.224)(image).unsqueeze(0)
                     
-                    label = self._preprocess_label()(label)
-
+                    label = self._preprocess_label()(label) # Label first as we use the resized version for image
+                    
+                    image = image / image.max()  # To [0, 1] range
+                    image = self._preprocess_image(0.456, 0.224, label)(image).unsqueeze(0)
+                    
+                    
                     # Exclude NaNs from dataset
                     if image.isnan().sum().item() > 0 or label.isnan().sum().item() > 0:
                         skip_nan += 1
@@ -113,22 +115,23 @@ class ACDCDataset(TensorDataset):
         if verbose > 0:
             print(f'Saved dataset of {len(self)} images to {self.location}')
 
-    def _preprocess_image(self, mu: float, sigma: float) -> transforms.Compose:
+    def _preprocess_image(self, mu: float, sigma: float, label=None) -> transforms.Compose:
         """Preprocess image
 
         Args:
             mu (float): average for normalization layer
             sigma (float): standard deviation for normalization layer
+            label (Tensor, ndarray, optional): ROI labels for simulatetags contrast curve
 
         Returns:
             transforms.Compose: transformation callback function
         """
         if self.tagged:
             return transforms.Compose([
-                SimulateTags(),
                 transforms.ToTensor(),
+                transforms.Resize((256, 256)),
+                SimulateTags(label=label),
                 transforms.Normalize(mean=mu, std=sigma),
-                transforms.Resize((256, 256))
             ])
         else:
             return transforms.Compose([
