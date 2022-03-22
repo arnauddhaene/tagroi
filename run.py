@@ -17,7 +17,8 @@ from src.data.utils import INDEX_TO_CLASS
 
 @click.command()
 @click.option('--tagged', default=True, help="Apply simulated tagging transformation.")
-@click.option('--dmd', default=True, help="Add DMD data.")
+@click.option('--dmd', default=False, help="Add DMD data.")
+@click.option('--only-myo', default=False, help="Use only the LV myocardium as target class.")
 @click.option('--batch-size', default=32, help="Batch size.")
 @click.option('--lr', default=1e-2, help="Learning rate.")
 @click.option('--decay', default=1e-3, help="Optimizer weight decay.")
@@ -27,15 +28,19 @@ from src.data.utils import INDEX_TO_CLASS
 @click.option('--model-name', default='model', help="Filename for pickled model.")
 @click.option('--verbose', default=1, type=int, help="Print out info for debugging purposes.")
 def run(
-    tagged, dmd, batch_size, lr, decay, momentum, epochs,
+    tagged, dmd, only_myo, batch_size, lr, decay, momentum, epochs,
     experiment_name, model_name, verbose
 ):
-    dataset = ACDCDataset('../../training', tagged=tagged, verbose=verbose, only_myo=dmd)
+
+    if dmd and not only_myo:
+        raise ValueError('If you want to add DMD images, you must run with only_myo=True.')
+
+    dataset = ACDCDataset('../../training', tagged=tagged, verbose=verbose, only_myo=only_myo)
     if dmd:
         dmd_dataset = DMDDataset('../dmd_roi')
         dataset = merge_tensor_datasets(dataset, dmd_dataset)
     
-    index_to_class = dict(zip(range(2), ['BG', 'MYO'])) if dmd else INDEX_TO_CLASS
+    index_to_class = dict(zip(range(2), ['BG', 'MYO'])) if only_myo else INDEX_TO_CLASS
 
     split = [736, 257] if dmd else [704, 247]
     train_set, val_set = random_split(dataset, split, generator=torch.Generator().manual_seed(42))
@@ -44,9 +49,9 @@ def run(
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    model = UNet(n_channels=1, n_classes=(2 if dmd else 4), bilinear=True).double()
+    model = UNet(n_channels=1, n_classes=(2 if only_myo else 4), bilinear=True).double()
 
-    if not dmd:
+    if not dmd and not only_myo:
         pretrained_path = 'checkpoints/model/model_cine_tag_v1_sd.pt'
         # Load old saved version of the model as a state dictionary
         saved_model_sd = torch.load(pretrained_path)
@@ -64,6 +69,7 @@ def run(
     run['hparams'] = {
         'tagged': tagged,
         'with_dmd': dmd,
+        'only_myo': only_myo,
         'pretrained': pretrained_path,
         'split': split
     }

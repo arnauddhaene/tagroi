@@ -84,11 +84,10 @@ class ACDCDataset(TensorDataset):
                     # Preprocess
                     # mu, sigma = np.mean(image, axis=(0, 1)), np.std(image, axis=(0, 1))
                     
-                    label = self._preprocess_label()(label) # Label first as we use the resized version for image
+                    label = self._preprocess_label()(label)  # Label first as we use the resized version
                     
                     image = image / image.max()  # To [0, 1] range
                     image = self._preprocess_image(0.456, 0.224, label)(image).unsqueeze(0)
-                    
                     
                     # Exclude NaNs from dataset
                     if image.isnan().sum().item() > 0 or label.isnan().sum().item() > 0:
@@ -121,7 +120,7 @@ class ACDCDataset(TensorDataset):
         if verbose > 0:
             print(f'Saved dataset of {len(self)} images to {self.location}')
 
-    def _preprocess_image(self, mu: float, sigma: float, label=None) -> transforms.Compose:
+    def _preprocess_image(self, mu: float, sigma: float, label: torch.Tensor = None) -> transforms.Compose:
         """Preprocess image
 
         Args:
