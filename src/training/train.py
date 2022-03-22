@@ -1,3 +1,4 @@
+from typing import Dict
 from pathlib import Path
 from tqdm import tqdm
 
@@ -17,7 +18,7 @@ def train(
     model: nn.Module, run: aim.Run, loader_train: DataLoader, loader_val: DataLoader,
     filename: str = 'model', device: torch.device = 'cpu',
     learning_rate: float = 1e-2, weight_decay: float = 1e-3, momentum: float = 0.9,
-    epochs: int = 50, verbose: int = 0
+    epochs: int = 50, index_to_class: Dict[int, str] = INDEX_TO_CLASS, verbose: int = 0
 ) -> None:
     """
     Train model
@@ -55,13 +56,11 @@ def train(
     # Define loss
     criterion = nn.CrossEntropyLoss()
     dice_criterion = DiceLoss(exclude_bg=True)
-    # region_criterion = RegionLoss(exclude_bg=False)
     shape_criterion = ShapeLoss(exclude_bg=False)
 
     def loss_fn(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         return criterion(outputs, targets) + dice_criterion(outputs, targets) \
             + 1e-2 * shape_criterion(outputs, targets)
-        # return region_criterion(outputs, targets) + 0.1 * shape_criterion(outputs, targets)
 
     optimizer = torch.optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=weight_decay,
                                     momentum=momentum)
@@ -69,6 +68,7 @@ def train(
     grad_scaler = torch.cuda.amp.GradScaler(enabled=amp)
     
     run['hparams'] = {
+        **run['hparams'],
         'learning_rate': learning_rate,
         'weight_decay': weight_decay,
         'batch_size': loader_train.batch_size,
@@ -90,7 +90,7 @@ def train(
     pbar = tqdm(range(epochs), unit='epoch', leave=False)
     for epoch in pbar:
         
-        dice = torch.zeros(4).to(device)
+        dice = torch.zeros(model.n_classes).to(device)
         acc_loss = 0.
 
         model.train()
@@ -128,7 +128,7 @@ def train(
         avg_dice = train_perf.mean()
 
         for i, val in enumerate(train_perf):
-            run.track(val, name=f'dice_{INDEX_TO_CLASS[i]}', epoch=epoch, context=dict(subset='train'))
+            run.track(val, name=f'dice_{index_to_class[i]}', epoch=epoch, context=dict(subset='train'))
 
         status = f'Epoch {epoch:03} \t Loss {acc_loss:.4f} \t Dice {avg_dice:.4f}'
         
@@ -140,7 +140,7 @@ def train(
         scheduler.step(avg_val_dice)
 
         for i, val in enumerate(val_perf):
-            run.track(val, name=f'dice_{INDEX_TO_CLASS[i]}', epoch=epoch, context=dict(subset='val'))
+            run.track(val, name=f'dice_{index_to_class[i]}', epoch=epoch, context=dict(subset='val'))
 
         status += f'\t Val. Loss {val_loss:.4f} \t Val. Dice {avg_val_dice:.4f}'
 

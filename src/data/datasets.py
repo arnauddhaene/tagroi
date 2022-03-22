@@ -18,7 +18,7 @@ class ACDCDataset(TensorDataset):
     def __init__(
         self,
         path: str = None, recompute: bool = False, tagged: bool = True, name: str = '',
-        verbose: int = 0
+        only_myo: bool = False, verbose: int = 0
     ):
         """Constructor
 
@@ -28,6 +28,7 @@ class ACDCDataset(TensorDataset):
                 fetching from pickled file in repository. Defaults to False.
             tagged (bool, optional): transform to tagged images. Defaults to True.
             name (str, optional): name to be added to saved file. Defaults to ''.
+            only_myo (bool, optional): Use only myo as class. Defaults to False.
             verbose (int, optional): Print out information. Defaults to 0.
 
         Raises:
@@ -36,8 +37,10 @@ class ACDCDataset(TensorDataset):
         repo_path = Path(__file__).parent.parent.parent
         (repo_path / 'checkpoints').mkdir(parents=True, exist_ok=True)
         self.tagged: bool = tagged
-        filename = 'acdc_dataset_' + ('tagged' if tagged else 'cine') + '.pt'
-        self.location: Path = (repo_path / 'checkpoints') / filename
+        filename = 'acdc_dataset_' + ('tagged' if tagged else 'cine')
+        if only_myo:
+            filename += '_only_myo'
+        self.location: Path = (repo_path / 'checkpoints') / (filename + '.pt')
         
         if path is None and recompute:
             raise ValueError('Missing path.')
@@ -95,6 +98,9 @@ class ACDCDataset(TensorDataset):
                     if len(_classes) > 4 or not set(_classes).issubset(accepted_classes):
                         skip_label += 1
                         continue
+
+                    if only_myo:
+                        label = (label == 2)
                             
                     images = torch.cat((images, image), axis=0)
                     labels = torch.cat((labels, label), axis=0)
@@ -257,4 +263,22 @@ class DMDTimeDataset(TensorDataset):
             transforms.Resize((256, 256))
         ])
 
-    
+
+def merge_tensor_datasets(a: TensorDataset, b: TensorDataset) -> TensorDataset:
+
+    if len(a.tensors) != len(b.tensors):
+        raise ValueError(f'TensorDatasets do not have same number of tensors: \
+                         {len(a.tensors)} vs. {len(b.tensors)}')
+
+    dataset: TensorDataset = TensorDataset()
+    tensors = ()
+
+    for tensor_a, tensor_b in zip(a.tensors, b.tensors):
+        if tensor_a.ndim != tensor_b.ndim:
+            raise ValueError(f'Tensors do not have same number of dimensions: \
+                             {tensor_a.ndim} vs. {tensor_b.ndim}')
+        tensors += (torch.cat([tensor_a, tensor_b]),)
+
+    dataset.tensors = tensors
+
+    return dataset
